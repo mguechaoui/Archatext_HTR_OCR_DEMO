@@ -32,10 +32,9 @@ MODEL_VERSION="${MODEL_VERSION:-v1}"
 GITHUB_USER="${GITHUB_USER:-}"
 IMAGE="${IMAGE:-ghcr.io/${GITHUB_USER}/ocr-platform:latest}"
 
-# Local paths to your checkpoints — edit these or pass as env vars.
-SEG_MODEL="${SEG_MODEL:-../fuzzysearch_aproach/seg_model/muharaf_seg_best.mlmodel}"
-OCR_MODEL="${OCR_MODEL:-../fuzzysearch_aproach/arman_training_last/checkpoints/arman_run1_91.mlmodel}"
-HATFORMER_DIR="${HATFORMER_DIR:-./checkpoints/ocr/muharaf_ours/best}"
+SEG_MODEL="${SEG_MODEL:-./models/seg/muharaf_seg_best.mlmodel}"
+OCR_MODEL="${OCR_MODEL:-./models/ocr/arman_run1_best.mlmodel}"
+HATFORMER_DIR="${HATFORMER_DIR:-}"
 
 say() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 
