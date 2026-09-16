@@ -1,0 +1,27 @@
+{
+  "$comment": "Declares which model artifacts to pull at container boot. Blob paths are relative to OCR_MODEL_BASE_URL/OCR_MODEL_VERSION. 'dest' is relative to OCR_MODEL_DIR. Fill in sha256 once you upload — it is optional, but with it a corrupted or swapped blob fails loudly at boot instead of producing silently wrong predictions.",
+  "artifacts": [
+    {
+      "name": "segmentation",
+      "blob": "seg/muharaf_seg_best.mlmodel",
+      "dest": "seg/muharaf_seg_best.mlmodel",
+      "sha256": null,
+      "optional": false
+    },
+    {
+      "name": "myocr",
+      "blob": "ocr/arman_run1_91.mlmodel",
+      "dest": "ocr/arman_best.mlmodel",
+      "sha256": null,
+      "optional": false
+    },
+    {
+      "name": "hatformer",
+      "blob": "ocr/hatformer.tar.gz",
+      "dest": "ocr/hatformer",
+      "archive": "tar.gz",
+      "sha256": null,
+      "optional": true
+    }
+  ]
+}

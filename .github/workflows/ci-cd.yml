@@ -1,0 +1,198 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE_NAME: ocr-platform
+
+jobs:
+  # --------------------------------------------------------------------- #
+  # Fast feedback. Runs on every PR, no Docker, no model weights.
+  # --------------------------------------------------------------------- #
+  quality:
+    name: Lint and import checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install lint tooling
+        run: pip install ruff
+
+      - name: Ruff
+        run: ruff check app scripts --output-format=github
+
+      - name: Validate the model manifest
+        # Catches the classic failure where someone adds an artifact with a
+        # typo'd key and only finds out when the container refuses to boot.
+        run: |
+          python - <<'PY'
+          import json, sys
+          m = json.load(open("models.manifest.json"))
+          required = {"name", "blob", "dest"}
+          for a in m["artifacts"]:
+              missing = required - a.keys()
+              assert not missing, f"{a.get('name', '?')} missing keys: {missing}"
+              assert a.get("archive") in (None, "tar.gz", "tgz", "zip"), a["name"]
+          print(f"manifest ok: {len(m['artifacts'])} artifact(s)")
+          PY
+
+      - name: Fetcher unit smoke test
+        run: |
+          pip install httpx
+          python -c "
+          import sys; sys.path.insert(0, 'scripts')
+          from fetch_models import build_url
+          got = build_url('https://a.blob.core.windows.net/models', 'v2', 'seg/m.mlmodel', '?sv=x&sig=y')
+          assert got == 'https://a.blob.core.windows.net/models/v2/seg/m.mlmodel?sv=x&sig=y', got
+          # Version prefix must be optional, not silently inserted as 'None'.
+          assert build_url('https://a/b', '', 'x.bin', '') == 'https://a/b/x.bin'
+          print('url builder ok')
+          "
+
+  # --------------------------------------------------------------------- #
+  # Build the image and actually boot it. A build that compiles but cannot
+  # start is not a passing build.
+  # --------------------------------------------------------------------- #
+  build:
+    name: Build and smoke-test image
+    runs-on: ubuntu-latest
+    needs: quality
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Report image size
+        # Image size is a deploy-time cost on every cold start. If a
+        # dependency change quietly pulls the CUDA torch build back in, this
+        # line is where you notice — it roughly quadruples.
+        run: docker image ls ${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+      - name: Boot without weights and check liveness
+        # No checkpoints are available in CI, and that is the point: the app
+        # is designed to start degraded rather than crash-loop. Liveness must
+        # pass; readiness is expected to report 503.
+        run: |
+          docker run -d --name smoke -p 8000:8000 \
+            -e OCR_SKIP_MODEL_FETCH=1 \
+            -e OCR_DEVICE=cpu \
+            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:8000/health > /dev/null 2>&1; then
+              echo "liveness ok after ${i}s"; break
+            fi
+            if [ "$i" = "60" ]; then
+              echo "container never became live:"; docker logs smoke; exit 1
+            fi
+            sleep 1
+          done
+
+          echo "--- /health/ready (503 expected, no weights present) ---"
+          curl -s -o /tmp/ready.json -w '%{http_code}\n' http://localhost:8000/health/ready
+          cat /tmp/ready.json | python -m json.tool
+
+          echo "--- frontend still served ---"
+          curl -fsS -o /dev/null -w 'GET / -> %{http_code}\n' http://localhost:8000/
+
+          docker rm -f smoke
+
+  # --------------------------------------------------------------------- #
+  # Deploy. main only.
+  # --------------------------------------------------------------------- #
+  # --------------------------------------------------------------------- #
+  # Push to GHCR and roll out. main only.
+  #
+  # GHCR rather than Azure Container Registry: ACR Basic is ~$5/month, and
+  # GHCR is free for public packages. The image carries no weights and no
+  # secrets, so there is nothing to protect by paying for a private registry.
+  # --------------------------------------------------------------------- #
+  deploy:
+    name: Publish image and deploy to Azure
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    environment: production
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest
+          # Reuses the layer cache from the build job above, so this does not
+          # recompile the whole torch/kraken stack a second time.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Roll out new revision
+        run: |
+          az containerapp update \
+            --name ${{ secrets.AZURE_CONTAINERAPP }} \
+            --resource-group ${{ secrets.AZURE_RG }} \
+            --image ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
+            --set-env-vars GIT_SHA=${{ github.sha }} IMAGE_TAG=${{ github.sha }}
+
+      - name: Verify the deployed revision serves
+        run: |
+          FQDN=$(az containerapp show \
+            --name ${{ secrets.AZURE_CONTAINERAPP }} \
+            --resource-group ${{ secrets.AZURE_RG }} \
+            --query 'properties.configuration.ingress.fqdn' -o tsv)
+
+          echo "Waiting for https://$FQDN/health/ready"
+          for i in $(seq 1 40); do
+            code=$(curl -s -o /tmp/r.json -w '%{http_code}' "https://$FQDN/health/ready" || echo 000)
+            if [ "$code" = "200" ]; then
+              echo "ready:"; cat /tmp/r.json; exit 0
+            fi
+            sleep 15
+          done
+
+          echo "Revision never became ready. Last response:"; cat /tmp/r.json || true
+          exit 1

@@ -1,0 +1,6 @@
+# Pins that must not be moved by transitive resolution.
+# torch/torchvision are installed from the CPU-only index in the Dockerfile;
+# without these constraints kraken or transformers can pull the CUDA build
+# back in as a dependency upgrade, adding ~2.5GB of unusable nvidia-* wheels.
+torch==2.4.1
+torchvision==0.19.1

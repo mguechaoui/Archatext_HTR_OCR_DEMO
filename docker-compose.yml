@@ -1,0 +1,47 @@
+# Local development. Mirrors the deployed container as closely as possible so
+# "works on my machine" and "works on Azure" are the same statement.
+#
+#   docker compose up --build
+#   -> http://localhost:8000
+#
+# Weights are bind-mounted from ./model_weights instead of being pulled from
+# blob storage, so you can iterate on checkpoints without re-uploading.
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ocr-platform:local
+    ports:
+      - "8000:8000"
+    environment:
+      OCR_DEBUG: "true"
+      OCR_DEVICE: "cpu"
+      OCR_MODEL_DIR: "/models"
+      # Skip the blob fetch — use whatever is bind-mounted below.
+      OCR_SKIP_MODEL_FETCH: "1"
+      OCR_ENABLED_OCR_ENGINES: "*"
+      OMP_NUM_THREADS: "2"
+    volumes:
+      - ./model_weights:/models:ro
+      # Uploads and outputs persist across restarts locally; in production
+      # these are ephemeral by design (see docs/DEPLOYMENT.md).
+      - ocr-uploads:/srv/app/uploads
+      - ocr-outputs:/srv/app/outputs
+    # Matches the production memory ceiling so an OOM shows up here, not in
+    # the first live demo.
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health/ready"]
+      interval: 30s
+      timeout: 10s
+      start_period: 180s
+      retries: 3
+    restart: unless-stopped
+
+volumes:
+  ocr-uploads:
+  ocr-outputs:

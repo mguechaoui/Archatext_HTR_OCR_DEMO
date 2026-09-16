@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Manuscript OCR Workbench</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body>
+
+  <div class="app">
+
+    <!-- ============== LEFT RAIL: PIPELINE SPINE ============== -->
+    <aside class="rail">
+      <div class="rail-brand">
+        <span class="rail-brand-mark">رق</span>
+        <div class="rail-brand-text">
+          <strong>Manuscript</strong>
+          <span>OCR Workbench</span>
+        </div>
+      </div>
+
+      <ol class="stage-list" id="stage-list">
+        <li class="stage" data-stage="upload">
+          <span class="stage-num">1</span>
+          <div class="stage-info">
+            <span class="stage-name">Upload</span>
+            <span class="stage-state" data-state="upload">Not started</span>
+          </div>
+        </li>
+        <li class="stage" data-stage="segment">
+          <span class="stage-num">2</span>
+          <div class="stage-info">
+            <span class="stage-name">Segment</span>
+            <span class="stage-state" data-state="segment">Not started</span>
+          </div>
+        </li>
+        <li class="stage" data-stage="recognize">
+          <span class="stage-num">3</span>
+          <div class="stage-info">
+            <span class="stage-name">Recognize</span>
+            <span class="stage-state" data-state="recognize">Not started</span>
+          </div>
+        </li>
+        <li class="stage" data-stage="export">
+          <span class="stage-num">4</span>
+          <div class="stage-info">
+            <span class="stage-name">Export</span>
+            <span class="stage-state" data-state="export">Not started</span>
+          </div>
+        </li>
+      </ol>
+
+      <div class="rail-footer">
+        <label class="engine-picker">
+          <span>OCR engine</span>
+          <select id="engine-select" disabled>
+            <option value="">Loading engines…</option>
+          </select>
+        </label>
+      </div>
+    </aside>
+
+    <!-- ============== MAIN CANVAS ============== -->
+    <main class="canvas">
+
+      <!-- Upload dropzone (shown until a page is uploaded) -->
+      <section class="dropzone" id="dropzone">
+        <input type="file" id="file-input" accept=".jpg,.jpeg,.png,.tif,.tiff" hidden />
+        <div class="dropzone-inner">
+          <svg width="56" height="56" viewBox="0 0 56 56" fill="none">
+            <rect x="6" y="6" width="44" height="44" rx="3" stroke="currentColor" stroke-width="1.6"/>
+            <path d="M16 38L24 28L30 34L40 22" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+            <circle cx="20" cy="18" r="2.4" fill="currentColor"/>
+          </svg>
+          <h1>Bring a page to the table</h1>
+          <p>Drop a manuscript scan, or choose a file. JPG, PNG, or TIFF.</p>
+          <button class="btn btn-primary" id="browse-btn" type="button">Choose a file</button>
+
+          <!-- Populated by static/js/samples.js. Lets a visitor try the
+               pipeline on a real page without uploading anything. -->
+          <div class="sample-gallery-wrap">
+            <p class="sample-gallery-label">Or try a sample page</p>
+            <div class="sample-gallery" id="sample-gallery"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Workbench (shown once a page exists) -->
+      <section class="workbench hidden" id="workbench">
+
+        <header class="canvas-toolbar">
+          <div class="toolbar-left">
+            <button class="btn btn-ghost" id="new-page-btn" type="button">&larr; New page</button>
+            <span class="toolbar-divider"></span>
+            <div class="view-toggle" id="view-toggle">
+              <button class="view-toggle-btn active" data-view="original">Original</button>
+              <button class="view-toggle-btn" data-view="overlay">Overlay</button>
+            </div>
+          </div>
+          <div class="toolbar-right">
+            <button class="btn btn-secondary" id="run-segmentation-btn" type="button">Run segmentation</button>
+            <button class="btn btn-primary" id="run-ocr-btn" type="button" disabled>Recognize text</button>
+          </div>
+        </header>
+
+        <div class="canvas-body">
+
+          <!-- Image viewport -->
+          <div class="viewport" id="viewport">
+            <div class="viewport-stage" id="viewport-stage">
+              <img id="page-image" alt="Manuscript page" />
+              <svg id="overlay-svg" class="overlay-svg"></svg>
+            </div>
+            <div class="viewport-empty-hint hidden" id="segment-hint">
+              Click <strong>Run segmentation</strong> to detect lines on this page.
+            </div>
+          </div>
+
+          <!-- Inspector panel -->
+          <aside class="inspector" id="inspector">
+            <div class="inspector-header">
+              <h2>Segments</h2>
+              <span class="segment-count" id="segment-count">0</span>
+            </div>
+            <div class="inspector-empty" id="inspector-empty">
+              <p>No segments yet. Run segmentation to detect manuscript lines — they'll appear here, each linked to its spot on the page.</p>
+            </div>
+            <ol class="segment-list hidden" id="segment-list"></ol>
+
+            <div class="inspector-footer hidden" id="page-text-footer">
+              <h3>Reconstructed page</h3>
+              <pre class="page-text" id="page-text" dir="rtl"></pre>
+              <div class="export-row">
+                <span>Download</span>
+                <div class="export-buttons" id="export-buttons">
+                  <button data-fmt="txt">TXT</button>
+                  <button data-fmt="json">JSON</button>
+                  <button data-fmt="csv">CSV</button>
+                  <button data-fmt="alto">ALTO</button>
+                  <button data-fmt="page-xml">PAGE</button>
+                </div>
+              </div>
+            </div>
+          </aside>
+
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- Toast / status messages -->
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="/js/app.js"></script>
+  <script src="/js/samples.js"></script>
+</body>
+</html>

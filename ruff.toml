@@ -1,0 +1,34 @@
+# Explicit lint config so CI is deterministic — a ruff version bump should
+# never turn a green pipeline red on rules nobody opted into.
+target-version = "py311"
+line-length = 100
+
+exclude = ["research", ".venv", "outputs", "uploads", "model_weights"]
+
+[lint]
+select = ["E", "F", "I", "UP", "B", "C4"]
+ignore = [
+    # FastAPI's dependency injection is *built* on calls in argument
+    # defaults (`Depends(...)`, `File(...)`, `Query(...)`). This rule is
+    # correct in general and wrong for every FastAPI route ever written.
+    "B008",
+    # Long lines in prose comments and docstrings.
+    "E501",
+    # `class X(str, Enum)` -> StrEnum is not a pure refactor: it changes what
+    # str(X.MEMBER) returns, and these enums are serialised into API
+    # responses and export filenames. Not worth the blast radius.
+    "UP042",
+    # matplotlib's API is keyword-heavy; dict(...) reads better than a
+    # literal in the overlay-rendering call sites.
+    "C408",
+]
+
+[lint.per-file-ignores]
+# Startup code deliberately catches broad exceptions: one failed engine must
+# degrade that engine, not take down the whole platform.
+"app/ocr/registry.py" = ["BLE001"]
+"app/core/lifespan.py" = ["BLE001"]
+"scripts/fetch_models.py" = ["BLE001"]
+
+[lint.isort]
+known-first-party = ["app"]
