@@ -5,14 +5,14 @@
       "name": "segmentation",
       "blob": "seg/muharaf_seg_best.mlmodel",
       "dest": "seg/muharaf_seg_best.mlmodel",
-      "sha256": null,
+      "sha256": "d0c225530d36a9064cf2d0f37b113bee84d1764a4aa507beaf8f4c4a3a32a07c",
       "optional": false
     },
     {
       "name": "myocr",
-      "blob": "ocr/arman_run1_91.mlmodel",
-      "dest": "ocr/arman_best.mlmodel",
-      "sha256": null,
+      "blob": "v1/ocr/arman_run1_91.mlmodel",
+      "dest": "ocr/arman_run1_91.mlmodel",
+      "sha256": "328c25d57724a0d438fe7114566387ee529c9f86a0893ef5725c4f2082a3cda1",
       "optional": false
     },
     {

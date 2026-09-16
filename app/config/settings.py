@@ -71,7 +71,7 @@ class Settings(BaseSettings):
     # OCR models
     # ------------------------------------------------------------------ #
     # "MyOCRModel" — fine-tuned kraken recognition checkpoint (ArMan pipeline)
-    myocr_checkpoint_path: Path = _MODEL_DIR / "ocr" / "arman_run1_best.mlmodel"
+    myocr_checkpoint_path: Path = _MODEL_DIR / "ocr" / "arman_run1_91.mlmodel"
 
     # HATFormer — HuggingFace-style image-to-text transformer checkpoint.
     # Point this at a local directory or HF hub id; the adapter loads it
