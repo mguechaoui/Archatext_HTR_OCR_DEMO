@@ -48,12 +48,10 @@ ENV PYTHONUNBUFFERED=1 \
     MPLCONFIGDIR=/tmp/matplotlib \
     HF_HOME=/tmp/hf \
     OMP_NUM_THREADS=1 \
-    OCR_MODEL_DIR=/models
+    OCR_MODEL_DIR=/models \
+    REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \
+    SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 
-# Runtime shared libraries only:
-#   libgl1 / libglib2.0-0 — opencv (pulled in via kraken's image pipeline)
-#   libgomp1              — OpenMP runtime used by torch
-#   libxml2 / libxslt1.1  — lxml, used by kraken's ALTO/PAGE serialisation
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libgl1 \
         libglib2.0-0 \
@@ -61,6 +59,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libxml2 \
         libxslt1.1 \
         curl \
+        ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /opt/venv /opt/venv
