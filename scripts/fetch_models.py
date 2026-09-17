@@ -39,9 +39,12 @@ import tarfile
 import time
 import zipfile
 from pathlib import Path
+import ssl
 
 import httpx
 
+_CA_BUNDLE = "/etc/ssl/certs/ca-certificates.crt"
+_SSL_CTX = ssl.create_default_context(cafile=_CA_BUNDLE)
 CHUNK = 1024 * 1024
 MANIFEST = Path(__file__).resolve().parents[1] / "models.manifest.json"
 
@@ -79,7 +82,7 @@ def download(url: str, dest: Path, attempts: int = 3) -> None:
     last_error: Exception | None = None
     for attempt in range(1, attempts + 1):
         try:
-            with httpx.stream("GET", url, timeout=120.0, follow_redirects=True) as r:
+            with httpx.stream("GET", url, timeout=120.0, follow_redirects=True, verify=_SSL_CTX) as r:
                 r.raise_for_status()
                 total = int(r.headers.get("content-length", 0))
                 written = 0
