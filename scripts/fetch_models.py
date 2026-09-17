@@ -16,8 +16,13 @@ from pathlib import Path
 
 import httpx
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="[fetch-models] %(message)s",
+    stream=sys.stdout,
+    force=True,
+)
 log = logging.getLogger(__name__).info
-
 CHUNK = 1024 * 1024
 MANIFEST = Path(__file__).resolve().parents[1] / "models.manifest.json"
 
