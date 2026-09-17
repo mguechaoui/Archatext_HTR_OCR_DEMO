@@ -28,17 +28,24 @@ The manifest (models.manifest.json) declares what to fetch. Artifacts marked
 abort the boot, because a container that silently starts without its
 segmentation model is worse than one that refuses to start.
 
-TLS note
---------
-Downloads use httpx's default certificate verification, which is backed by
-the `certifi` package (a pinned httpx dependency) rather than the
-container's OS-level CA store. Do not replace this with a hand-rolled
-ssl.SSLContext pointed at /etc/ssl/certs/ca-certificates.crt — that ties
-verification to whatever CA snapshot happens to be baked into the base
-image, which Azure Blob Storage's certificate chain has been known to
-outrun, producing exactly the
+TLS note — read this before touching verification again
+---------------------------------------------------------
+Azure has been migrating blob storage endpoints off the old Baltimore
+CyberTrust root onto newer roots (DigiCert Global Root G2 / Microsoft RSA
+Root CA 2017). Whether a given container can verify that chain depends on
+whether *either* its OS ca-certificates snapshot or its pinned `certifi`
+version already contains the new root — and either one can lag behind on its
+own, which is exactly what produced repeated
 "[SSL: CERTIFICATE_VERIFY_FAILED] unable to get local issuer certificate"
-error this comment is here to prevent someone from reintroducing.
+failures here even after removing a broken custom SSL context.
+
+The fix below does not pick one trust source. It builds a single SSLContext
+that loads *both* certifi's bundle and the OS trust store
+(/etc/ssl/certs/ca-certificates.crt, present because the runtime image
+installs ca-certificates) into the same context, so verification succeeds as
+long as either source has the needed root. If the OS bundle isn't present
+(e.g. running this script outside the container), it degrades to
+certifi-only rather than failing to build the context at all.
 """
 from __future__ import annotations
 
@@ -46,20 +53,46 @@ import hashlib
 import json
 import os
 import shutil
+import ssl
 import sys
 import tarfile
 import time
 import zipfile
 from pathlib import Path
 
+import certifi
 import httpx
 
 CHUNK = 1024 * 1024
 MANIFEST = Path(__file__).resolve().parents[1] / "models.manifest.json"
+_OS_CA_BUNDLE = Path("/etc/ssl/certs/ca-certificates.crt")
 
 
 def log(msg: str) -> None:
     print(f"[fetch-models] {msg}", flush=True)
+
+
+def _build_ssl_context() -> ssl.SSLContext:
+    """One trust store, fed from every CA source we have available.
+
+    Starts from certifi's bundle (guaranteed present — it's a pinned httpx
+    dependency), then additionally loads the OS trust store on top if it
+    exists. load_verify_locations() is additive, not a replacement, so this
+    is a union of both, not a fallback between them.
+    """
+    ctx = ssl.create_default_context(cafile=certifi.where())
+    if _OS_CA_BUNDLE.exists():
+        try:
+            ctx.load_verify_locations(cafile=str(_OS_CA_BUNDLE))
+            log(f"TLS trust store: certifi + {_OS_CA_BUNDLE}")
+        except ssl.SSLError as exc:
+            log(f"  could not merge OS CA bundle ({exc}); using certifi only")
+    else:
+        log("TLS trust store: certifi only (no OS bundle found)")
+    return ctx
+
+
+_SSL_CTX = _build_ssl_context()
 
 
 def sha256_of(path: Path) -> str:
@@ -78,15 +111,24 @@ def build_url(base: str, version: str, blob: str, sas: str) -> str:
     return url
 
 
+# Split timeouts, not one flat number. A single timeout=120.0 applies to
+# connect AND read, which means an endpoint that is simply unreachable
+# (blocked egress, wrong hostname, DNS black hole) hangs for the full 120s
+# before failing -- and across 3 attempts x however many artifacts, that is
+# what turns "broken" into "looks stuck for twenty minutes with zero signal".
+# connect/write/pool stay short, because a real Azure Storage endpoint
+# either responds to the TLS handshake in a couple seconds or it never will.
+# read stays generous, because a multi-hundred-MB checkpoint over a slow
+# link legitimately needs time once bytes are actually flowing.
+_TIMEOUT = httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=10.0)
+
+
 def download(url: str, dest: Path, attempts: int = 3) -> None:
     """Stream to a .part file, then atomically rename.
 
     The atomic rename matters: if the container is killed mid-download (very
     plausible on a platform that scales to zero), the next boot must not find
     a truncated checkpoint sitting at the final path and treat it as cached.
-
-    Uses httpx's default TLS verification (certifi-backed) — see the module
-    docstring for why that matters more than it looks like it should.
     """
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(dest.suffix + ".part")
@@ -94,7 +136,9 @@ def download(url: str, dest: Path, attempts: int = 3) -> None:
     last_error: Exception | None = None
     for attempt in range(1, attempts + 1):
         try:
-            with httpx.stream("GET", url, timeout=120.0, follow_redirects=True) as r:
+            with httpx.stream(
+                "GET", url, timeout=_TIMEOUT, follow_redirects=True, verify=_SSL_CTX
+            ) as r:
                 r.raise_for_status()
                 total = int(r.headers.get("content-length", 0))
                 written = 0
