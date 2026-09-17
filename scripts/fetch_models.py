@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+
 from __future__ import annotations
 
 import hashlib
@@ -15,6 +16,7 @@ from logging import log
 from pathlib import Path
 
 import httpx
+
 CHUNK = 1024 * 1024
 MANIFEST = Path(__file__).resolve().parents[1] / "models.manifest.json"
 _OS_CA_BUNDLE = "/etc/ssl/certs/ca-certificates.crt"
