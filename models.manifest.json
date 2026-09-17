@@ -10,7 +10,7 @@
     },
     {
       "name": "myocr",
-      "blob": "v1/ocr/arman_run1_91.mlmodel",
+      "blob": "ocr/arman_run1_91.mlmodel",
       "dest": "ocr/arman_run1_91.mlmodel",
       "sha256": "328c25d57724a0d438fe7114566387ee529c9f86a0893ef5725c4f2082a3cda1",
       "optional": false
