@@ -48,11 +48,17 @@ ENV PYTHONUNBUFFERED=1 \
     MPLCONFIGDIR=/tmp/matplotlib \
     HF_HOME=/tmp/hf \
     OMP_NUM_THREADS=1 \
-    OCR_MODEL_DIR=/models \
-    REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \
-    SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
-    
+    OCR_MODEL_DIR=/models
 
+# Runtime shared libraries only:
+#   libgl1 / libglib2.0-0 — opencv (pulled in via kraken's image pipeline)
+#   libgomp1              — OpenMP runtime used by torch
+#   libxml2 / libxslt1.1  — lxml, used by kraken's ALTO/PAGE serialisation
+#   ca-certificates       — kept for curl (HEALTHCHECK) and any tool that
+#                           reads the OS trust store. scripts/fetch_models.py
+#                           does NOT depend on this: its HTTPS verification
+#                           goes through httpx's default certifi-backed
+#                           bundle, deliberately decoupled from this package.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libgl1 \
         libglib2.0-0 \

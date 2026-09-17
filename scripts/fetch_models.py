@@ -27,12 +27,25 @@ The manifest (models.manifest.json) declares what to fetch. Artifacts marked
 `"optional": true` log a warning and are skipped on failure; required ones
 abort the boot, because a container that silently starts without its
 segmentation model is worse than one that refuses to start.
+
+TLS note
+--------
+Downloads use httpx's default certificate verification, which is backed by
+the `certifi` package (a pinned httpx dependency) rather than the
+container's OS-level CA store. Do not replace this with a hand-rolled
+ssl.SSLContext pointed at /etc/ssl/certs/ca-certificates.crt — that ties
+verification to whatever CA snapshot happens to be baked into the base
+image, which Azure Blob Storage's certificate chain has been known to
+outrun, producing exactly the
+"[SSL: CERTIFICATE_VERIFY_FAILED] unable to get local issuer certificate"
+error this comment is here to prevent someone from reintroducing.
 """
+from __future__ import annotations
+
 import hashlib
 import json
 import os
 import shutil
-import ssl
 import sys
 import tarfile
 import time
@@ -41,8 +54,6 @@ from pathlib import Path
 
 import httpx
 
-_CA_BUNDLE = "/etc/ssl/certs/ca-certificates.crt"
-_SSL_CTX = ssl.create_default_context(cafile=_CA_BUNDLE)
 CHUNK = 1024 * 1024
 MANIFEST = Path(__file__).resolve().parents[1] / "models.manifest.json"
 
@@ -73,6 +84,9 @@ def download(url: str, dest: Path, attempts: int = 3) -> None:
     The atomic rename matters: if the container is killed mid-download (very
     plausible on a platform that scales to zero), the next boot must not find
     a truncated checkpoint sitting at the final path and treat it as cached.
+
+    Uses httpx's default TLS verification (certifi-backed) — see the module
+    docstring for why that matters more than it looks like it should.
     """
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(dest.suffix + ".part")
@@ -80,19 +94,16 @@ def download(url: str, dest: Path, attempts: int = 3) -> None:
     last_error: Exception | None = None
     for attempt in range(1, attempts + 1):
         try:
-            transport = httpx.HTTPTransport(verify=_SSL_CTX)
-
-            with httpx.Client(transport=transport, timeout=120.0, follow_redirects=True) as client:
-                with client.stream("GET", url) as r:
-                    r.raise_for_status()
-                    total = int(r.headers.get("content-length", 0))
-                    written = 0
-            with tmp.open("wb") as fh:              # ← wrong indent
-                for chunk in r.iter_bytes(CHUNK):
-                    fh.write(chunk)
-                    written += len(chunk)
-            if total and written != total:
-                raise OSError(f"short read: {written} of {total} bytes")
+            with httpx.stream("GET", url, timeout=120.0, follow_redirects=True) as r:
+                r.raise_for_status()
+                total = int(r.headers.get("content-length", 0))
+                written = 0
+                with tmp.open("wb") as fh:
+                    for chunk in r.iter_bytes(CHUNK):
+                        fh.write(chunk)
+                        written += len(chunk)
+                if total and written != total:
+                    raise OSError(f"short read: {written} of {total} bytes")
             tmp.replace(dest)
             log(f"  downloaded {dest.name} ({dest.stat().st_size / 1e6:.1f} MB)")
             return
