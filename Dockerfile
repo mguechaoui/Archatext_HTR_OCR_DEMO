@@ -74,8 +74,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # DigiCert Global Root G2 / Microsoft TLS RSA Root G2. Ship the DigiCert G2
 # root explicitly so the container does not depend on the Debian
 # ca-certificates snapshot having it yet.
-COPY certs/DigiCertGlobalRootG2.crt.pem /usr/local/share/ca-certificates/DigiCertGlobalRootG2.crt.pem
-RUN chmod 644 /usr/local/share/ca-certificates/DigiCertGlobalRootG2.crt.pem \
+COPY certs/DigiCertGlobalRootG2.pem certs/MicrosoftTLSRSARootG2.pem /usr/local/share/ca-certificates/
+RUN chmod 644 /usr/local/share/ca-certificates/*.pem \
     && update-ca-certificates
 
 COPY --from=builder /opt/venv /opt/venv

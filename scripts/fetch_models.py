@@ -1,57 +1,10 @@
 #!/usr/bin/env python3
-"""
-Pull model artifacts from Azure Blob Storage into the container's model
-directory, before the API starts.
 
-Why this exists
----------------
-Model weights do not belong in a Docker image. Baking them in means every
-retrain produces a new multi-gigabyte image, the registry fills up, and the
-image and the weights version together instead of independently. Instead the
-image is weights-free and immutable, and the weights are pulled at boot from
-a versioned, immutable blob prefix.
-
-That gives you the property that actually matters operationally: rolling a
-model back is an environment-variable change (OCR_MODEL_VERSION=v3 -> v2 and
-restart), not a rebuild.
-
-Configuration (environment)
----------------------------
-  OCR_MODEL_BASE_URL   https://<account>.blob.core.windows.net/<container>
-  OCR_MODEL_SAS_TOKEN  read-only SAS, with or without the leading '?'
-  OCR_MODEL_VERSION    version prefix inside the container (default: v1)
-  OCR_MODEL_DIR        local destination (default: /models)
-  OCR_SKIP_MODEL_FETCH set to 1 to bypass entirely (local dev with mounts)
-
-The manifest (models.manifest.json) declares what to fetch. Artifacts marked
-`"optional": true` log a warning and are skipped on failure; required ones
-abort the boot, because a container that silently starts without its
-segmentation model is worse than one that refuses to start.
-
-TLS note — read this before touching verification again
----------------------------------------------------------
-Azure has been migrating blob storage endpoints off the old Baltimore
-CyberTrust root onto newer roots (DigiCert Global Root G2 / Microsoft TLS
-RSA Root G2). Whether a given container can verify that chain depends on
-whether *either* its OS ca-certificates snapshot or its pinned `certifi`
-version already contains the new root — and either one can lag behind on
-its own, which is exactly what produced the repeated
-"[SSL: CERTIFICATE_VERIFY_FAILED] unable to get local issuer certificate"
-failures here.
-
-The fix below does not pick one trust source. It builds a single SSLContext
-that loads *both* certifi's bundle and the OS trust store
-(/etc/ssl/certs/ca-certificates.crt, present because the runtime image
-installs ca-certificates and drops DigiCert Global Root G2 into it).
-Verification therefore succeeds as long as either source has the needed
-root. If the OS bundle isn't present (e.g. running this script on a host
-that lacks it), it degrades to certifi-only rather than failing to build
-the context at all.
-"""
 from __future__ import annotations
 
 import hashlib
 import json
+from logging import log
 import os
 import shutil
 import ssl
@@ -61,35 +14,27 @@ import time
 import zipfile
 from pathlib import Path
 
-import certifi
 import httpx
 
 CHUNK = 1024 * 1024
 MANIFEST = Path(__file__).resolve().parents[1] / "models.manifest.json"
-_OS_CA_BUNDLE = Path("/etc/ssl/certs/ca-certificates.crt")
-
-
-def log(msg: str) -> None:
-    print(f"[fetch-models] {msg}", flush=True)
+_OS_CA_BUNDLE = "/etc/ssl/certs/ca-certificates.crt"
 
 
 def _build_ssl_context() -> ssl.SSLContext:
-    """One trust store, fed from every CA source we have available.
+    """Use the OS trust store directly.
 
-    Starts from certifi's bundle (guaranteed present — it's an httpx
-    dependency), then additionally loads the OS trust store on top if it
-    exists. load_verify_locations() is additive, not a replacement, so this
-    is a union of both sources, not a fallback between them.
+    The runtime image installs ca-certificates and drops both
+    DigiCertGlobalRootG2.pem and MicrosoftTLSRSARootG2.pem into
+    /usr/local/share/ca-certificates/ before running update-ca-certificates.
+    That bundle is authoritative and complete, so we do not merge certifi
+    on top — certifi's snapshot lags behind Azure's root migration and
+    reintroducing it is what kept verification failing.
     """
-    ctx = ssl.create_default_context(cafile=certifi.where())
-    if _OS_CA_BUNDLE.exists():
-        try:
-            ctx.load_verify_locations(cafile=str(_OS_CA_BUNDLE))
-            log(f"TLS trust store: certifi + {_OS_CA_BUNDLE}")
-        except ssl.SSLError as exc:
-            log(f"  could not merge OS CA bundle ({exc}); using certifi only")
-    else:
-        log("TLS trust store: certifi only (no OS bundle found)")
+    if not Path(_OS_CA_BUNDLE).exists():
+        raise RuntimeError(f"OS CA bundle missing at {_OS_CA_BUNDLE}")
+    ctx = ssl.create_default_context(cafile=_OS_CA_BUNDLE)
+    log(f"TLS trust store: {_OS_CA_BUNDLE}")
     return ctx
 
 
