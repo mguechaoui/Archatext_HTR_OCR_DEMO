@@ -28,18 +28,16 @@ The manifest (models.manifest.json) declares what to fetch. Artifacts marked
 abort the boot, because a container that silently starts without its
 segmentation model is worse than one that refuses to start.
 """
-from __future__ import annotations
-
 import hashlib
 import json
 import os
 import shutil
+import ssl
 import sys
 import tarfile
 import time
 import zipfile
 from pathlib import Path
-import ssl
 
 import httpx
 
