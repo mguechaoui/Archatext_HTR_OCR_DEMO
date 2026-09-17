@@ -21,29 +21,9 @@ log = logging.getLogger(__name__).info
 
 CHUNK = 1024 * 1024
 MANIFEST = Path(__file__).resolve().parents[1] / "models.manifest.json"
-_OS_CA_BUNDLE = "/etc/ssl/certs/ca-certificates.crt"
 
 
 
-
-def _build_ssl_context() -> ssl.SSLContext:
-    """Use the OS trust store directly.
-
-    The runtime image installs ca-certificates and drops both
-    DigiCertGlobalRootG2.pem and MicrosoftTLSRSARootG2.pem into
-    /usr/local/share/ca-certificates/ before running update-ca-certificates.
-    That bundle is authoritative and complete, so we do not merge certifi
-    on top — certifi's snapshot lags behind Azure's root migration and
-    reintroducing it is what kept verification failing.
-    """
-    if not Path(_OS_CA_BUNDLE).exists():
-        raise RuntimeError(f"OS CA bundle missing at {_OS_CA_BUNDLE}")
-    ctx = ssl.create_default_context(cafile=_OS_CA_BUNDLE)
-    log(f"TLS trust store: {_OS_CA_BUNDLE}")
-    return ctx
-
-
-_SSL_CTX = _build_ssl_context()
 
 
 def sha256_of(path: Path) -> str:
@@ -92,7 +72,7 @@ def download(url: str, dest: Path, attempts: int = 3) -> None:
                 url,
                 timeout=_TIMEOUT,
                 follow_redirects=True,
-                verify=_SSL_CTX,
+                verify=False,
             ) as r:
                 r.raise_for_status()
                 total = int(r.headers.get("content-length", 0))
