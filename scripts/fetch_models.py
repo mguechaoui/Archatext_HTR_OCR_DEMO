@@ -31,21 +31,22 @@ segmentation model is worse than one that refuses to start.
 TLS note — read this before touching verification again
 ---------------------------------------------------------
 Azure has been migrating blob storage endpoints off the old Baltimore
-CyberTrust root onto newer roots (DigiCert Global Root G2 / Microsoft RSA
-Root CA 2017). Whether a given container can verify that chain depends on
+CyberTrust root onto newer roots (DigiCert Global Root G2 / Microsoft TLS
+RSA Root G2). Whether a given container can verify that chain depends on
 whether *either* its OS ca-certificates snapshot or its pinned `certifi`
-version already contains the new root — and either one can lag behind on its
-own, which is exactly what produced repeated
+version already contains the new root — and either one can lag behind on
+its own, which is exactly what produced the repeated
 "[SSL: CERTIFICATE_VERIFY_FAILED] unable to get local issuer certificate"
-failures here even after removing a broken custom SSL context.
+failures here.
 
 The fix below does not pick one trust source. It builds a single SSLContext
 that loads *both* certifi's bundle and the OS trust store
 (/etc/ssl/certs/ca-certificates.crt, present because the runtime image
-installs ca-certificates) into the same context, so verification succeeds as
-long as either source has the needed root. If the OS bundle isn't present
-(e.g. running this script outside the container), it degrades to
-certifi-only rather than failing to build the context at all.
+installs ca-certificates and drops DigiCert Global Root G2 into it).
+Verification therefore succeeds as long as either source has the needed
+root. If the OS bundle isn't present (e.g. running this script on a host
+that lacks it), it degrades to certifi-only rather than failing to build
+the context at all.
 """
 from __future__ import annotations
 
@@ -75,10 +76,10 @@ def log(msg: str) -> None:
 def _build_ssl_context() -> ssl.SSLContext:
     """One trust store, fed from every CA source we have available.
 
-    Starts from certifi's bundle (guaranteed present — it's a pinned httpx
+    Starts from certifi's bundle (guaranteed present — it's an httpx
     dependency), then additionally loads the OS trust store on top if it
     exists. load_verify_locations() is additive, not a replacement, so this
-    is a union of both, not a fallback between them.
+    is a union of both sources, not a fallback between them.
     """
     ctx = ssl.create_default_context(cafile=certifi.where())
     if _OS_CA_BUNDLE.exists():
@@ -114,12 +115,12 @@ def build_url(base: str, version: str, blob: str, sas: str) -> str:
 # Split timeouts, not one flat number. A single timeout=120.0 applies to
 # connect AND read, which means an endpoint that is simply unreachable
 # (blocked egress, wrong hostname, DNS black hole) hangs for the full 120s
-# before failing -- and across 3 attempts x however many artifacts, that is
+# before failing — and across 3 attempts x however many artifacts, that is
 # what turns "broken" into "looks stuck for twenty minutes with zero signal".
 # connect/write/pool stay short, because a real Azure Storage endpoint
-# either responds to the TLS handshake in a couple seconds or it never will.
-# read stays generous, because a multi-hundred-MB checkpoint over a slow
-# link legitimately needs time once bytes are actually flowing.
+# either responds to the TLS handshake in a couple of seconds or it never
+# will. read stays generous, because a multi-hundred-MB checkpoint over a
+# slow link legitimately needs time once bytes are actually flowing.
 _TIMEOUT = httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=10.0)
 
 
@@ -137,7 +138,11 @@ def download(url: str, dest: Path, attempts: int = 3) -> None:
     for attempt in range(1, attempts + 1):
         try:
             with httpx.stream(
-                "GET", url, timeout=_TIMEOUT, follow_redirects=True, verify=_SSL_CTX
+                "GET",
+                url,
+                timeout=_TIMEOUT,
+                follow_redirects=True,
+                verify=_SSL_CTX,
             ) as r:
                 r.raise_for_status()
                 total = int(r.headers.get("content-length", 0))
@@ -176,9 +181,9 @@ def unpack(archive: Path, dest_dir: Path, kind: str) -> None:
         raise ValueError(f"unknown archive kind '{kind}'")
     archive.unlink(missing_ok=True)
 
-    # Collapse a single wrapping directory, so the manifest's `dest` is always
-    # the directory the model loader is pointed at regardless of how the
-    # archive happened to be rolled.
+    # Collapse a single wrapping directory, so the manifest's `dest` is
+    # always the directory the model loader is pointed at regardless of how
+    # the archive happened to be rolled.
     entries = list(dest_dir.iterdir())
     if len(entries) == 1 and entries[0].is_dir():
         inner = entries[0]
@@ -209,7 +214,9 @@ def fetch_one(art: dict, base: str, version: str, sas: str, model_dir: Path) -> 
             actual = sha256_of(tmp_archive)
             if actual != expected:
                 tmp_archive.unlink(missing_ok=True)
-                raise RuntimeError(f"checksum mismatch: expected {expected}, got {actual}")
+                raise RuntimeError(
+                    f"checksum mismatch: expected {expected}, got {actual}"
+                )
             log("  checksum ok")
         unpack(tmp_archive, dest, archive_kind)
         (dest / ".fetched").write_text(version or "v1")
@@ -220,7 +227,9 @@ def fetch_one(art: dict, base: str, version: str, sas: str, model_dir: Path) -> 
             actual = sha256_of(dest)
             if actual != expected:
                 dest.unlink(missing_ok=True)
-                raise RuntimeError(f"checksum mismatch: expected {expected}, got {actual}")
+                raise RuntimeError(
+                    f"checksum mismatch: expected {expected}, got {actual}"
+                )
             log("  checksum ok")
 
     return True

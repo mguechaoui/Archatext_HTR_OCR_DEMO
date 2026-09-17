@@ -54,11 +54,12 @@ ENV PYTHONUNBUFFERED=1 \
 #   libgl1 / libglib2.0-0 — opencv (pulled in via kraken's image pipeline)
 #   libgomp1              — OpenMP runtime used by torch
 #   libxml2 / libxslt1.1  — lxml, used by kraken's ALTO/PAGE serialisation
-#   ca-certificates       — kept for curl (HEALTHCHECK) and any tool that
-#                           reads the OS trust store. scripts/fetch_models.py
-#                           does NOT depend on this: its HTTPS verification
-#                           goes through httpx's default certifi-backed
-#                           bundle, deliberately decoupled from this package.
+#   curl                  — used by the HEALTHCHECK probe
+#   ca-certificates       — OS trust store. Read by curl, and merged on top
+#                           of certifi's bundle by scripts/fetch_models.py
+#                           so that whichever snapshot lags behind on newer
+#                           roots (DigiCert Global Root G2), the other one
+#                           covers it.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libgl1 \
         libglib2.0-0 \
@@ -68,6 +69,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         curl \
         ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+
+# Azure Blob Storage is migrating from the old Baltimore CyberTrust root to
+# DigiCert Global Root G2 / Microsoft TLS RSA Root G2. Ship the DigiCert G2
+# root explicitly so the container does not depend on the Debian
+# ca-certificates snapshot having it yet.
+COPY certs/DigiCertGlobalRootG2.crt.pem /usr/local/share/ca-certificates/DigiCertGlobalRootG2.crt.pem
+RUN chmod 644 /usr/local/share/ca-certificates/DigiCertGlobalRootG2.crt.pem \
+    && update-ca-certificates
 
 COPY --from=builder /opt/venv /opt/venv
 
