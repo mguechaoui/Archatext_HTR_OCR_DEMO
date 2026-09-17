@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import shutil
 import ssl
@@ -12,14 +13,17 @@ import sys
 import tarfile
 import time
 import zipfile
-from logging import log
 from pathlib import Path
 
 import httpx
 
+log = logging.getLogger(__name__).info
+
 CHUNK = 1024 * 1024
 MANIFEST = Path(__file__).resolve().parents[1] / "models.manifest.json"
 _OS_CA_BUNDLE = "/etc/ssl/certs/ca-certificates.crt"
+
+
 
 
 def _build_ssl_context() -> ssl.SSLContext:
