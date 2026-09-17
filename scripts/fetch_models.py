@@ -80,16 +80,19 @@ def download(url: str, dest: Path, attempts: int = 3) -> None:
     last_error: Exception | None = None
     for attempt in range(1, attempts + 1):
         try:
-            with httpx.stream("GET", url, timeout=120.0, follow_redirects=True, verify=_SSL_CTX) as r:
-                r.raise_for_status()
-                total = int(r.headers.get("content-length", 0))
-                written = 0
-                with tmp.open("wb") as fh:
-                    for chunk in r.iter_bytes(CHUNK):
-                        fh.write(chunk)
-                        written += len(chunk)
-                if total and written != total:
-                    raise OSError(f"short read: {written} of {total} bytes")
+            transport = httpx.HTTPTransport(verify=_SSL_CTX)
+
+            with httpx.Client(transport=transport, timeout=120.0, follow_redirects=True) as client:
+                with client.stream("GET", url) as r:
+                    r.raise_for_status()
+                    total = int(r.headers.get("content-length", 0))
+                    written = 0
+            with tmp.open("wb") as fh:              # ← wrong indent
+                for chunk in r.iter_bytes(CHUNK):
+                    fh.write(chunk)
+                    written += len(chunk)
+            if total and written != total:
+                raise OSError(f"short read: {written} of {total} bytes")
             tmp.replace(dest)
             log(f"  downloaded {dest.name} ({dest.stat().st_size / 1e6:.1f} MB)")
             return

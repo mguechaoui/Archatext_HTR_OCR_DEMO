@@ -51,6 +51,7 @@ ENV PYTHONUNBUFFERED=1 \
     OCR_MODEL_DIR=/models \
     REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \
     SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+    
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libgl1 \
