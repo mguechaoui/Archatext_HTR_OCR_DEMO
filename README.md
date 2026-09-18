@@ -49,7 +49,6 @@ The image ships **weights-free**. Model checkpoints live in versioned Azure Blob
 - **Liveness vs. readiness, properly separated** — `/health` reports the process is alive; `/health/ready` reports whether each model actually loaded, and 503s until segmentation is ready. A missing checkpoint restart-loops nothing; it degrades that one engine and says so.
 - **Graceful degradation by design** — each OCR engine is independently pluggable; if one fails to load, the rest of the platform still serves. `OCR_ENABLED_OCR_ENGINES` also lets a deployment deliberately drop a heavier engine (e.g. HATFormer) to fit a smaller memory budget without a different image.
 - **CI/CD** — GitHub Actions lints, builds the image, boots it with no model weights present to assert it degrades correctly rather than crashing, then deploys and polls the live revision's readiness endpoint before declaring success.
-- **$0 hosting** — see [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for the full breakdown: Azure Container Apps' free monthly grant covers the API, Blob Storage costs about a cent a month for the checkpoints, and the image is hosted free on GitHub Container Registry.
 
 ## Getting started locally
 
