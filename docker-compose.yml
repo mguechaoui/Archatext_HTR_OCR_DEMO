@@ -23,7 +23,7 @@ services:
       OCR_ENABLED_OCR_ENGINES: "*"
       OMP_NUM_THREADS: "2"
     volumes:
-      - ./model_weights:/models:ro
+      - ./models:/models:ro
       # Uploads and outputs persist across restarts locally; in production
       # these are ephemeral by design (see docs/DEPLOYMENT.md).
       - ocr-uploads:/srv/app/uploads
