@@ -84,7 +84,7 @@ Once downloaded, place them here and the app will pick them up on next run:
 ```
 models/
   seg/muharaf_seg_best.mlmodel
-  ocr/arman_1best.mlmodel        # rename the downloaded arman_run1_91.mlmodel to this
+  ocr/arman_run1_91.mlmodel      # rename the downloaded arman_run1_91.mlmodel to this
 ```
 
 Full detail on the artifact-versioning design, and on how the deployed container fetches these same files automatically, is in [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
